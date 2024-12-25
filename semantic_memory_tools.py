@@ -1,3 +1,4 @@
+import json
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -36,20 +37,41 @@ def store_memory(input_data: StoreMemoryInput) -> str:
 
     # Add optional fields to context if they exist
     if input_data.category:
-        context["category"] = input_data.category
+        context["category"] = input_data.category.lower()
     if input_data.location:
-        context["location"] = input_data.location
+        context["location"] = input_data.location.lower()
     if input_data.participants:
-        context["participants"] = input_data.participants
+        context["participants"] = json.dumps(input_data.participants)
     if input_data.importance:
         context["importance"] = input_data.importance
     if input_data.tags:
-        context["tags"] = input_data.tags
+        context["tags"] = json.dumps([tag.lower() for tag in input_data.tags])
 
     # Store the memory
     memory_id = memory.store(input_data.content, context)
 
     return f"Successfully stored memory with ID: {memory_id}"
+
+
+def get_memory_entry_formatted(memory_entry) -> str:
+    output = f""
+    output += f"Category:\n{memory_entry['metadata'].get('category', 'Unknown')}\n\n"
+    output += f"Location:\n{memory_entry['metadata'].get('location', 'Unknown')}\n\n"
+    output += f"Content:\n{memory_entry['content']}\n\n"
+    output += f"Participants:\n{', '.join(json.loads(memory_entry['metadata'].get('participants', '[]')))}\n\n"
+    output += f"Importance:\n{memory_entry['metadata'].get('importance', 'Unknown')}\n\n"
+    output += f"Tags:\n{', '.join(json.loads(memory_entry['metadata'].get('tags', '[]')))}\n"
+    return output
+
+
+def get_memory_entries_formatted(memory_entries) -> str:
+    output = "--- Memories ---\n"
+
+    for idx, memory_entry in enumerate(memory_entries):
+        output += f"# Memory {idx + 1}\n{get_memory_entry_formatted(memory_entry)}\n"
+
+    output += "--- Memories End ---\n"
+    return output
 
 
 class RecallMemoryInput(BaseModel):
@@ -73,25 +95,32 @@ def recall_memories(input_data: RecallMemoryInput) -> List[Dict[str, Any]]:
     """
     global memory
 
-    # Build context filter
-    context_filter = {}
+    # Build context filter conditions
+    conditions = []
     if input_data.category:
-        context_filter["category"] = input_data.category
+        conditions.append({"category": input_data.category.lower()})
     if input_data.location:
-        context_filter["location"] = input_data.location
+        conditions.append({"location": input_data.location.lower()})
     if input_data.min_importance:
-        context_filter["importance"] = {"$gte": input_data.min_importance}
+        conditions.append({"importance": {"$gte": input_data.min_importance}})
     if input_data.tags:
-        context_filter["tags"] = {"$in": input_data.tags}
+        conditions.append({"tags": {"$in": [tag.lower() for tag in input_data.tags]}})
+
+    # Combine conditions with $and operator if there are multiple conditions
+    context_filter = (
+        {"$and": conditions} if len(conditions) > 1
+        else conditions[0] if conditions
+        else None
+    )
 
     # Perform recall
     results = memory.recall(
         query=input_data.query,
         n_results=input_data.n_results,
-        context_filter=context_filter if context_filter else None
+        context_filter=context_filter if len(context_filter) > 0 else None
     )
-
-    return results
+    output = get_memory_entries_formatted(results)
+    return output
 
 
 class AnalyzeMemoryPatternsInput(BaseModel):
@@ -102,33 +131,6 @@ class AnalyzeMemoryPatternsInput(BaseModel):
     min_similarity: Optional[float] = Field(0.7, description="Minimum similarity threshold", ge=0.0, le=1.0)
 
 
-def analyze_memory_patterns(input_data: AnalyzeMemoryPatternsInput) -> Dict[str, Any]:
-    """
-    Analyze patterns in stored memories.
-
-    Args:
-        input_data: The input containing analysis parameters
-    Returns:
-        Analysis results including patterns and statistics
-    """
-    global memory
-
-    # Get memory statistics
-    stats = memory.get_stats()
-
-    # For now, return basic statistics
-    # This could be expanded to include more sophisticated pattern analysis
-    return {
-        "memory_counts": stats,
-        "analysis_parameters": {
-            "timeframe": input_data.timeframe,
-            "category": input_data.category,
-            "location": input_data.location,
-            "min_similarity": input_data.min_similarity
-        }
-    }
-
-
 class SummarizeMemoriesInput(BaseModel):
     """Input for summarizing memories."""
     category: Optional[str] = Field(None, description="Filter by category")
@@ -137,55 +139,26 @@ class SummarizeMemoriesInput(BaseModel):
     importance_threshold: Optional[int] = Field(None, description="Minimum importance level to include", ge=1, le=10)
 
 
-def summarize_memories(input_data: SummarizeMemoriesInput) -> str:
-    """
-    Generate a summary of stored memories based on filters.
-
-    Args:
-        input_data: The input containing summarization parameters
-    Returns:
-        A textual summary of the memories
-    """
+def get_memory_count() -> str:
     global memory
-
-    # Build context filter
-    context_filter = {}
-    if input_data.category:
-        context_filter["category"] = input_data.category
-    if input_data.location:
-        context_filter["location"] = input_data.location
-    if input_data.importance_threshold:
-        context_filter["importance"] = {"$gte": input_data.importance_threshold}
-
-    # For now, return a basic summary
-    # This could be expanded to generate more detailed summaries
     stats = memory.get_stats()
-    return (
-        f"Memory Summary:\n"
-        f"Total memories: {sum(stats.values())}\n"
-        f"Immediate memories: {stats['immediate_count']}\n"
-        f"Working memories: {stats['working_count']}\n"
-        f"Long-term memories: {stats['long_term_count']}\n"
-        f"Filters applied: {', '.join(f'{k}={v}' for k, v in input_data.dict(exclude_none=True).items())}"
-    )
+    return f"Total memories: {sum(stats.values())}\n"
 
 
 # Create function tools
 store_memory_tool = FunctionTool(store_memory)
 recall_memories_tool = FunctionTool(recall_memories)
-analyze_patterns_tool = FunctionTool(analyze_memory_patterns)
-summarize_memories_tool = FunctionTool(summarize_memories)
 
 # Example usage
 if __name__ == "__main__":
     # Test storing a memory
     store_input = StoreMemoryInput(
         content="The party encountered a group of goblins in the Dark Forest",
-        category="combat",
+        category="Combat",
         location="Dark Forest",
         participants=["Thorin", "Elara", "Redrick"],
         importance=7,
-        tags=["combat", "goblins", "forest"]
+        tags=["Combat", "Goblins", "Forest"]
     )
     result = store_memory(store_input)
     print(result)
@@ -193,12 +166,9 @@ if __name__ == "__main__":
     # Test recalling memories
     recall_input = RecallMemoryInput(
         query="What happened in the forest?",
-        category="combat",
+        category="Combat",
         location="Dark Forest",
         min_importance=5
     )
     memories = recall_memories(recall_input)
-    for memory in memories:
-        print(f"\nMemory: {memory['content']}")
-        print(f"Similarity: {memory['similarity']:.2f}")
-        print(f"Type: {memory['memory_type']}")
+    print(get_memory_entries_formatted(memories))
