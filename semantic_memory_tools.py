@@ -1,5 +1,7 @@
 import json
+from enum import Enum
 from typing import Optional, List, Dict, Any
+
 from pydantic import BaseModel, Field
 from datetime import datetime
 from semantic_memory import SemanticMemory
@@ -8,18 +10,27 @@ from ToolAgents import FunctionTool
 memory = SemanticMemory("./game_master_memory")
 
 
-class StoreMemoryInput(BaseModel):
+class MemoryCategory(Enum):
+    """Categories for memories."""
+    COMBAT = "combat"
+    NPC_INTERACTION = "npc_interaction"
+    QUEST = "quest"
+    EXPLORATION = "exploration"
+    CHARACTER_DEVELOPMENT = "character_development"
+
+
+class MemoryInput(BaseModel):
     """Input for storing a new memory."""
     content: str = Field(..., description="The content of the memory to store")
-    category: Optional[str] = Field(None,
-                                    description="Category of the memory (e.g., 'combat', 'npc_interaction', 'quest')")
-    location: Optional[str] = Field(None, description="Location where the memory took place")
-    participants: Optional[List[str]] = Field(None, description="List of participants involved in the memory")
-    importance: Optional[int] = Field(None, description="Importance level of the memory (1-10)", ge=1, le=10)
-    tags: Optional[List[str]] = Field(None, description="List of tags to associate with the memory")
+    category: MemoryCategory = Field(None,
+                                     description="Category of the memory (e.g., 'combat', 'npc_interaction', 'quest')")
+    location: str = Field(None, description="Location where the memory took place")
+    participants: List[str] = Field(None, description="List of participants involved in the memory")
+    importance: int = Field(None, description="Importance level of the memory (1-10)", ge=1, le=10)
+    tags: List[str] = Field(None, description="List of tags to associate with the memory")
 
 
-def store_memory(input_data: StoreMemoryInput) -> str:
+def store_memory(input_data: MemoryInput) -> str:
     """
     Store a new memory in the semantic memory system.
 
@@ -37,7 +48,7 @@ def store_memory(input_data: StoreMemoryInput) -> str:
 
     # Add optional fields to context if they exist
     if input_data.category:
-        context["category"] = input_data.category.lower()
+        context["category"] = input_data.category.value
     if input_data.location:
         context["location"] = input_data.location.lower()
     if input_data.participants:
@@ -74,17 +85,17 @@ def get_memory_entries_formatted(memory_entries) -> str:
     return output
 
 
-class RecallMemoryInput(BaseModel):
+class RecallInput(BaseModel):
     """Input for recalling memories."""
     query: str = Field(..., description="The query to search for in memories")
     n_results: Optional[int] = Field(5, description="Number of results to return")
-    category: Optional[str] = Field(None, description="Filter by category")
+    category: Optional[MemoryCategory] = Field(None, description="Filter by category")
     location: Optional[str] = Field(None, description="Filter by location")
     min_importance: Optional[int] = Field(None, description="Minimum importance level", ge=1, le=10)
     tags: Optional[List[str]] = Field(None, description="Filter by tags (any match)")
 
 
-def recall_memories(input_data: RecallMemoryInput) -> List[Dict[str, Any]]:
+def recall_memories(input_data: RecallInput) -> List[Dict[str, Any]]:
     """
     Recall memories based on a query and optional filters.
 
@@ -98,7 +109,7 @@ def recall_memories(input_data: RecallMemoryInput) -> List[Dict[str, Any]]:
     # Build context filter conditions
     conditions = []
     if input_data.category:
-        conditions.append({"category": input_data.category.lower()})
+        conditions.append({"category": input_data.category.value})
     if input_data.location:
         conditions.append({"location": input_data.location.lower()})
     if input_data.min_importance:
@@ -152,9 +163,9 @@ recall_memories_tool = FunctionTool(recall_memories)
 # Example usage
 if __name__ == "__main__":
     # Test storing a memory
-    store_input = StoreMemoryInput(
+    store_input = MemoryInput(
         content="The party encountered a group of goblins in the Dark Forest",
-        category="Combat",
+        category="combat",
         location="Dark Forest",
         participants=["Thorin", "Elara", "Redrick"],
         importance=7,
@@ -164,11 +175,11 @@ if __name__ == "__main__":
     print(result)
 
     # Test recalling memories
-    recall_input = RecallMemoryInput(
+    recall_input = RecallInput(
         query="What happened in the forest?",
-        category="Combat",
+        category="combat",
         location="Dark Forest",
         min_importance=5
     )
     memories = recall_memories(recall_input)
-    print(get_memory_entries_formatted(memories))
+    print(memories)

@@ -74,7 +74,7 @@ class SemanticMemory:
         immediate_results = self.immediate.query(
             query_texts=[query],
             n_results=n_results,
-            where=context_filter if len(context_filter) > 0 else None
+            where=context_filter if context_filter and len(context_filter) > 0 else None
         )
         results.extend(self._format_results(immediate_results, "immediate"))
 
@@ -82,7 +82,7 @@ class SemanticMemory:
         working_results = self.working.query(
             query_texts=[query],
             n_results=n_results,
-            where=context_filter if len(context_filter) > 0 else None
+            where=context_filter if context_filter and len(context_filter) > 0 else None
         )
         results.extend(self._format_results(working_results, "working"))
 
@@ -90,7 +90,7 @@ class SemanticMemory:
         long_term_results = self.long_term.query(
             query_texts=[query],
             n_results=n_results,
-            where=context_filter if len(context_filter) > 0 else None
+            where=context_filter if context_filter and len(context_filter) > 0 else None
         )
         results.extend(self._format_results(long_term_results, "long_term"))
 
@@ -232,6 +232,18 @@ if __name__ == "__main__":
     # Recall memories
     results = memory.recall(
         "Do I know about quantum computing?",
+        n_results=3
+    )
+
+    for result in results:
+        print(f"Memory: {result['content']}")
+        print(f"Type: {result['memory_type']}")
+        print(f"Similarity: {result['similarity']:.2f}")
+        print("---")
+
+    # Recall memories
+    results = memory.recall(
+        "What is the color of the sky?",
         n_results=3
     )
 
